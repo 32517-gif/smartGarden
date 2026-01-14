@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Droplets, Thermometer, Sun, CloudRain, Sprout, Palette, LayoutDashboard, RefreshCw, FileText } from 'lucide-react';
 import SensorCard from './components/SensorCard';
 import ControlPanel from './components/ControlPanel';
@@ -65,6 +65,8 @@ const THEMES: Record<ThemeColor, ThemeConfig> = {
   }
 };
 
+const AI_CHECK_INTERVAL_MS = 300000; // 5 minutes
+
 function App() {
   const [mode, setMode] = useState<SystemMode>(SystemMode.AUTO);
   const [pumpStatus, setPumpStatus] = useState<PumpStatus>({ isOn: false, lastActive: null, currentVolumeTriggered: 0 });
@@ -102,7 +104,11 @@ function App() {
 
   const [historyData, setHistoryData] = useState<HistoryPoint[]>([]);
   const [waterUsageData, setWaterUsageData] = useState<WaterLog[]>([]);
+  const [aiCheckCountdown, setAiCheckCountdown] = useState(0);
+  
   const isProcessingAI = useRef(false);
+  // FIX: Initialize useRef with an explicit undefined value to resolve a TypeScript error.
+  const aiCheckCallback = useRef<(() => void) | undefined>(undefined);
 
   const updateWeather = async (lat: number, lng: number, locationName: string) => {
     setIsSyncing(true);
@@ -149,9 +155,27 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval>;
-    const runAICheck = async () => {
+  const triggerPump = useCallback(async (targetVolumeMl: number) => {
+    setPumpStatus({ 
+      isOn: true, 
+      lastActive: new Date().toLocaleTimeString(),
+      currentVolumeTriggered: targetVolumeMl
+    });
+    
+    await logWatering(targetVolumeMl, mode === SystemMode.AUTO ? 'AI' : 'MANUAL');
+    
+    const flowRateMlPerSec = (plantConfig.pumpFlowRate * 1000) / 60;
+    const durationSec = targetVolumeMl / flowRateMlPerSec;
+    const durationMs = durationSec * 1000;
+
+    setTimeout(() => {
+      setPumpStatus(prev => ({ ...prev, isOn: false, currentVolumeTriggered: 0 }));
+      refreshData(); 
+    }, durationMs);
+  }, [mode, plantConfig.pumpFlowRate]);
+
+  // Define the AI check logic, wrapped in useCallback for dependency management
+  const runAICheck = useCallback(async () => {
       if (mode !== SystemMode.AUTO || pumpStatus.isOn || isProcessingAI.current || sensors.soilMoisture === 0) return;
       
       isProcessingAI.current = true;
@@ -168,54 +192,60 @@ function App() {
           triggerPump(advice.recommendedAmount);
         }
       } catch (error) {
-        console.error("AI reasoning error", error);
+        console.error("AI reasoning error:", error);
       } finally {
         isProcessingAI.current = false;
       }
-    };
+    }, [mode, pumpStatus.isOn, sensors, weather, plantConfig, triggerPump]);
 
+  // Update the ref with the latest callback
+  useEffect(() => {
+    aiCheckCallback.current = runAICheck;
+  }, [runAICheck]);
+
+  // Effect for the main AI timer, depends ONLY on the mode
+  useEffect(() => {
     if (mode === SystemMode.AUTO) {
-      const timer = setTimeout(runAICheck, 3000); // Initial check delay
-      intervalId = setInterval(runAICheck, 60000); 
+      const initialDelay = 5000; // 5 second initial delay
+      let intervalId: number;
+
+      const timer = setTimeout(() => {
+        aiCheckCallback.current?.();
+        setAiCheckCountdown(AI_CHECK_INTERVAL_MS);
+        intervalId = setInterval(() => {
+          aiCheckCallback.current?.();
+          setAiCheckCountdown(AI_CHECK_INTERVAL_MS);
+        }, AI_CHECK_INTERVAL_MS);
+      }, initialDelay);
+
+      setAiCheckCountdown(initialDelay);
+
       return () => {
         clearTimeout(timer);
-        clearInterval(intervalId);
+        if (intervalId) clearInterval(intervalId);
       };
+    } else {
+      setAiCheckCountdown(0);
     }
-  }, [mode, sensors, weather, plantConfig, pumpStatus.isOn]);
+  }, [mode]);
 
-  const triggerPump = async (targetVolumeMl: number) => {
-    setPumpStatus({ 
-      isOn: true, 
-      lastActive: new Date().toLocaleTimeString(),
-      currentVolumeTriggered: targetVolumeMl
-    });
-    
-    // Log to sheet
-    await logWatering(targetVolumeMl, mode === SystemMode.AUTO ? 'AI' : 'MANUAL');
-    
-    // Calculate Duration:
-    const flowRateMlPerSec = (plantConfig.pumpFlowRate * 1000) / 60;
-    const durationSec = targetVolumeMl / flowRateMlPerSec;
-    const durationMs = durationSec * 1000;
-
-    setTimeout(() => {
-      setPumpStatus(prev => ({ ...prev, isOn: false, currentVolumeTriggered: 0 }));
-      refreshData(); 
-    }, durationMs);
-  };
+  // Effect for the countdown display
+  useEffect(() => {
+    if (aiCheckCountdown > 0) {
+      const countdownInterval = setInterval(() => {
+        setAiCheckCountdown(prev => (prev > 1000 ? prev - 1000 : 0));
+      }, 1000);
+      return () => clearInterval(countdownInterval);
+    }
+  }, [aiCheckCountdown]);
 
   const handleToggleMode = () => {
     setMode(prev => prev === SystemMode.AUTO ? SystemMode.MANUAL : SystemMode.AUTO);
   };
 
   const handleTogglePump = () => {
-    if (mode === SystemMode.AUTO) return;
-    if (pumpStatus.isOn) {
-      setPumpStatus(prev => ({ ...prev, isOn: false, currentVolumeTriggered: 0 }));
-    } else {
-      triggerPump(waterVolume);
-    }
+    if (mode === SystemMode.AUTO || pumpStatus.isOn) return;
+    triggerPump(waterVolume);
   };
 
   return (
@@ -330,6 +360,7 @@ function App() {
                   onVolumeChange={setWaterVolume}
                   onUpdatePlant={setPlantConfig}
                   onRefresh={refreshData}
+                  aiCheckCountdown={aiCheckCountdown}
               />
            </div>
            <div className="lg:col-span-7 flex flex-col gap-6 min-w-0">

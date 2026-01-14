@@ -14,17 +14,17 @@ interface ControlPanelProps {
   onVolumeChange: (vol: number) => void;
   onUpdatePlant: (config: PlantConfig) => void;
   onRefresh: () => void;
+  aiCheckCountdown?: number;
 }
 
 const ControlPanel: React.FC<ControlPanelProps> = ({
-  mode, pumpStatus, waterVolume, aiLog, theme, plantConfig,
+  mode, pumpStatus, waterVolume, aiLog, theme, plantConfig, aiCheckCountdown,
   onToggleMode, onTogglePump, onVolumeChange, onUpdatePlant
 }) => {
   
   const isAuto = mode === SystemMode.AUTO;
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
-  // Local state for editing form
   const [editConfig, setEditConfig] = useState<PlantConfig>(plantConfig);
 
   const handleSaveSettings = () => {
@@ -32,9 +32,16 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
     setIsSettingsOpen(false);
   };
 
-  // Calculate pump duration for display
   const flowRateMlPerSec = (plantConfig.pumpFlowRate * 1000) / 60;
-  const estimatedDurationSec = waterVolume / flowRateMlPerSec;
+  const estimatedDurationSec = flowRateMlPerSec > 0 ? waterVolume / flowRateMlPerSec : 0;
+  
+  const formatCountdown = (ms: number) => {
+    if (ms <= 1000) return "Checking...";
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  };
 
   if (isSettingsOpen) {
     return (
@@ -128,7 +135,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
         <h3 className="font-bold text-slate-700">Control System</h3>
       </div>
 
-      {/* Mode Switcher */}
       <div className="bg-slate-100 p-1.5 rounded-xl flex mb-6 relative">
         <button
           onClick={() => !isAuto && onToggleMode()}
@@ -152,7 +158,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
       <div className="flex-1 space-y-6">
         {isAuto ? (
-          // AUTO MODE UI
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
             <div className={`p-5 rounded-2xl bg-${theme.primary}-50 border border-${theme.primary}-100`}>
               <div className="flex items-start gap-4">
@@ -164,14 +169,16 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                     <p className={`text-sm text-${theme.primary}-700 mt-1 leading-relaxed`}>
                       {aiLog ? `"${aiLog.reason}"` : "ระบบกำลังวิเคราะห์ข้อมูลสภาพแวดล้อม..."}
                     </p>
-                    {aiLog && (
-                       <div className="mt-3 text-xs opacity-70 flex gap-3">
-                          <span>Last check: {aiLog.timestamp}</span>
-                          {aiLog.action === 'WATER' && <span className="font-bold">Watered {aiLog.amount}ml</span>}
-                       </div>
-                    )}
                  </div>
               </div>
+               <div className="mt-3 pt-3 border-t border-slate-200/80 text-xs flex justify-between items-center">
+                  <span className="text-slate-500">
+                    {aiLog ? `Last check: ${aiLog.timestamp}` : 'Initializing...'}
+                  </span>
+                  <span className={`font-semibold text-${theme.primary}-700`}>
+                    Next: {formatCountdown(aiCheckCountdown ?? 0)}
+                  </span>
+                </div>
             </div>
             
             {pumpStatus.isOn && (
@@ -180,13 +187,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
                 <span className="font-semibold">กำลังรดน้ำอัตโนมัติ...</span>
               </div>
             )}
-            
-            <div className="text-xs text-center text-slate-400 mt-4">
-               แปลง: {plantConfig.plotSize} ตร.ม. | ปั๊ม: {plantConfig.pumpFlowRate} L/min
-            </div>
           </div>
         ) : (
-          // MANUAL MODE UI
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
             <div>
                <div className="flex justify-between text-sm mb-2 font-medium">
