@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Droplets, Thermometer, Sun, CloudRain, Sprout, Palette, LayoutDashboard, RefreshCw, FileText } from 'lucide-react';
+import { Droplets, Thermometer, Sun, CloudRain, Sprout, Palette, LayoutDashboard, RefreshCw, FileText, Download, Bell } from 'lucide-react';
 import SensorCard from './components/SensorCard';
 import ControlPanel from './components/ControlPanel';
 import WeatherWidget from './components/WeatherWidget';
@@ -22,7 +22,7 @@ const APP_CONFIG = {
     harvestDays: 45,
     plotSize: 2.5,
     quantity: 20,
-    pumpFlowRate: 5 // Default 5 Liters/Minute (Standard mini pump)
+    pumpFlowRate: 5
   }
 };
 
@@ -65,17 +65,20 @@ const THEMES: Record<ThemeColor, ThemeConfig> = {
   }
 };
 
-const AI_CHECK_INTERVAL_MS = 300000; // 5 minutes
+const AI_CHECK_INTERVAL_MS = 300000; // 5 mins
 
 function App() {
   const [mode, setMode] = useState<SystemMode>(SystemMode.AUTO);
   const [pumpStatus, setPumpStatus] = useState<PumpStatus>({ isOn: false, lastActive: null, currentVolumeTriggered: 0 });
   const [waterVolume, setWaterVolume] = useState<number>(500);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  
   const [currentThemeId, setCurrentThemeId] = useState<ThemeColor>('emerald');
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const theme = THEMES[currentThemeId];
+
+  // PWA State
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
 
   const [plantConfig, setPlantConfig] = useState<PlantConfig>({
     name: APP_CONFIG.defaultPlant.name,
@@ -107,18 +110,35 @@ function App() {
   const [aiCheckCountdown, setAiCheckCountdown] = useState(0);
   
   const isProcessingAI = useRef(false);
-  // FIX: Initialize useRef with an explicit undefined value to resolve a TypeScript error.
   const aiCheckCallback = useRef<(() => void) | undefined>(undefined);
+
+  // PWA Installation Effect
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstallable(false);
+    }
+    setDeferredPrompt(null);
+  };
 
   const updateWeather = async (lat: number, lng: number, locationName: string) => {
     setIsSyncing(true);
     try {
       const data = await getRealWeather(lat, lng);
       if (data) {
-        setWeather({
-          ...data,
-          location: locationName
-        });
+        setWeather({ ...data, location: locationName });
       }
     } catch (e) {
       console.error("Weather Update Error", e);
@@ -143,7 +163,7 @@ function App() {
       setHistoryData(history);
       setWaterUsageData(logs);
     } catch (err) {
-      console.error("Refresh Data Error", err);
+      console.error("Refresh Error", err);
     } finally {
       setIsSyncing(false);
     }
@@ -165,8 +185,7 @@ function App() {
     await logWatering(targetVolumeMl, mode === SystemMode.AUTO ? 'AI' : 'MANUAL');
     
     const flowRateMlPerSec = (plantConfig.pumpFlowRate * 1000) / 60;
-    const durationSec = targetVolumeMl / flowRateMlPerSec;
-    const durationMs = durationSec * 1000;
+    const durationMs = (targetVolumeMl / flowRateMlPerSec) * 1000;
 
     setTimeout(() => {
       setPumpStatus(prev => ({ ...prev, isOn: false, currentVolumeTriggered: 0 }));
@@ -174,7 +193,6 @@ function App() {
     }, durationMs);
   }, [mode, plantConfig.pumpFlowRate]);
 
-  // Define the AI check logic, wrapped in useCallback for dependency management
   const runAICheck = useCallback(async () => {
       if (mode !== SystemMode.AUTO || pumpStatus.isOn || isProcessingAI.current || sensors.soilMoisture === 0) return;
       
@@ -198,15 +216,13 @@ function App() {
       }
     }, [mode, pumpStatus.isOn, sensors, weather, plantConfig, triggerPump]);
 
-  // Update the ref with the latest callback
   useEffect(() => {
     aiCheckCallback.current = runAICheck;
   }, [runAICheck]);
 
-  // Effect for the main AI timer, depends ONLY on the mode
   useEffect(() => {
     if (mode === SystemMode.AUTO) {
-      const initialDelay = 5000; // 5 second initial delay
+      const initialDelay = 5000;
       let intervalId: number;
 
       const timer = setTimeout(() => {
@@ -229,7 +245,6 @@ function App() {
     }
   }, [mode]);
 
-  // Effect for the countdown display
   useEffect(() => {
     if (aiCheckCountdown > 0) {
       const countdownInterval = setInterval(() => {
@@ -239,144 +254,111 @@ function App() {
     }
   }, [aiCheckCountdown]);
 
-  const handleToggleMode = () => {
-    setMode(prev => prev === SystemMode.AUTO ? SystemMode.MANUAL : SystemMode.AUTO);
-  };
-
-  const handleTogglePump = () => {
-    if (mode === SystemMode.AUTO || pumpStatus.isOn) return;
-    triggerPump(waterVolume);
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 pb-20 font-sans text-slate-800">
-      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm safe-top">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
            <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-md bg-gradient-to-br ${theme.bgGradient}`}>
                 <Sprout className="w-6 h-6" />
               </div>
-              <div>
-                <h1 className="font-bold text-xl tracking-tight text-slate-800 leading-tight">
+              <div className="hidden xs:block">
+                <h1 className="font-bold text-lg tracking-tight text-slate-800">
                   {APP_CONFIG.appName} <span className={`text-${theme.primary}-500`}>{APP_CONFIG.appSuffix}</span>
                 </h1>
-                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
-                  {APP_CONFIG.subtitle}
+                <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider -mt-1">
+                  Smart Irrigation
                 </p>
               </div>
            </div>
            
            <div className="flex items-center gap-2">
+              {isInstallable && (
+                <button 
+                  onClick={handleInstall}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold text-white shadow-sm bg-emerald-600 hover:bg-emerald-700 animate-pulse"
+                >
+                  <Download size={14} />
+                  <span className="hidden sm:inline">Install</span>
+                </button>
+              )}
               <button 
                 onClick={refreshData}
                 disabled={isSyncing}
-                className={`p-2 rounded-full hover:bg-slate-100 text-slate-400 transition-all ${isSyncing ? 'animate-spin text-blue-500' : ''}`}
-                title="Sync with Sheets"
+                className={`p-2 rounded-full hover:bg-slate-100 text-slate-400 ${isSyncing ? 'animate-spin text-blue-500' : ''}`}
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
-              <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 ml-2">
-                  <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-yellow-400 animate-pulse' : 'bg-green-500'}`}></div>
-                  <span className="text-xs font-semibold text-slate-600">{isSyncing ? 'Syncing...' : 'Connected'}</span>
-              </div>
-              <div className="relative ml-2">
-                <button 
-                  onClick={() => setShowThemeMenu(!showThemeMenu)}
-                  className="p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-all hover:text-slate-800"
-                >
-                  <Palette className="w-5 h-5" />
-                </button>
-                {showThemeMenu && (
-                  <div className="absolute right-0 mt-3 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 py-1 animate-in fade-in slide-in-from-top-2">
-                    {Object.values(THEMES).map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => { setCurrentThemeId(t.id as ThemeColor); setShowThemeMenu(false); }}
-                        className={`w-full text-left px-4 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentThemeId === t.id ? `font-bold text-${t.primary}-600 bg-${t.primary}-50` : 'text-slate-600'}`}
-                      >
-                        <div className={`w-4 h-4 rounded-full bg-${t.primary}-500 shadow-sm`}></div>
-                        {t.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <button onClick={() => setShowThemeMenu(!showThemeMenu)} className="p-2 rounded-full hover:bg-slate-100 text-slate-500">
+                <Palette className="w-5 h-5" />
+              </button>
+              {showThemeMenu && (
+                <div className="absolute right-4 top-14 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 py-1 animate-in fade-in slide-in-from-top-2">
+                  {Object.values(THEMES).map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setCurrentThemeId(t.id as ThemeColor); setShowThemeMenu(false); }}
+                      className={`w-full text-left px-4 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentThemeId === t.id ? `font-bold text-${t.primary}-600 bg-${t.primary}-50` : 'text-slate-600'}`}
+                    >
+                      <div className={`w-3 h-3 rounded-full bg-${t.primary}-500 shadow-sm`}></div>
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              )}
            </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+      <main className="max-w-7xl mx-auto p-4 space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-8 min-w-0">
+            <div className="lg:col-span-8">
                 <PlantStatus plant={plantConfig} theme={theme} />
             </div>
-            <div className="lg:col-span-4 min-w-0">
+            <div className="lg:col-span-4">
                 <WeatherWidget weather={weather} theme={theme} onLocationChange={updateWeather} />
             </div>
         </div>
 
-        <div>
-           <div className="flex items-center gap-2 mb-4 px-1">
-              <LayoutDashboard className="w-4 h-4 text-slate-400" />
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">Real-time Monitoring</h3>
-           </div>
-           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <SensorCard 
-              title="ความชื้นดิน" value={sensors.soilMoisture} unit="%" 
-              icon={Droplets} color="text-blue-500" 
-              bgColor="bg-blue-50"
-              borderColor="border-blue-100"
-              description="Target: 40-60%"
-            />
-            <SensorCard 
-              title="อุณหภูมิ" value={sensors.temperature} unit="°C" 
-              icon={Thermometer} color="text-orange-500" 
-              bgColor="bg-orange-50"
-              borderColor="border-orange-100"
-              description="Max: 35°C"
-            />
-            <SensorCard 
-              title="ความชื้นอากาศ" value={sensors.humidity} unit="%" 
-              icon={CloudRain} color="text-cyan-500" 
-              bgColor="bg-cyan-50"
-              borderColor="border-cyan-100"
-              description="Range: 60-80%"
-            />
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <SensorCard title="ความชื้นดิน" value={sensors.soilMoisture} unit="%" icon={Droplets} color="text-blue-500" bgColor="bg-blue-50" borderColor="border-blue-100" description="Target: 40-60%" />
+          <SensorCard title="อุณหภูมิ" value={sensors.temperature} unit="°C" icon={Thermometer} color="text-orange-500" bgColor="bg-orange-50" borderColor="border-orange-100" description="Max: 35°C" />
+          <SensorCard title="ความชื้นอากาศ" value={sensors.humidity} unit="%" icon={CloudRain} color="text-cyan-500" bgColor="bg-cyan-50" borderColor="border-cyan-100" description="Range: 60-80%" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-           <div className="lg:col-span-5 flex flex-col gap-6 min-w-0">
+           <div className="lg:col-span-5 flex flex-col gap-6">
               <AIAdvisor sensors={sensors} weather={weather} plant={plantConfig} theme={theme} />
               <ControlPanel 
-                  mode={mode}
-                  pumpStatus={pumpStatus}
-                  waterVolume={waterVolume}
-                  plantConfig={plantConfig}
-                  aiLog={aiLog}
-                  theme={theme}
-                  onToggleMode={handleToggleMode}
-                  onTogglePump={handleTogglePump}
-                  onVolumeChange={setWaterVolume}
-                  onUpdatePlant={setPlantConfig}
-                  onRefresh={refreshData}
-                  aiCheckCountdown={aiCheckCountdown}
+                  mode={mode} pumpStatus={pumpStatus} waterVolume={waterVolume} plantConfig={plantConfig} aiLog={aiLog} theme={theme}
+                  onToggleMode={() => setMode(prev => prev === SystemMode.AUTO ? SystemMode.MANUAL : SystemMode.AUTO)}
+                  onTogglePump={() => !pumpStatus.isOn && mode === SystemMode.MANUAL && triggerPump(waterVolume)}
+                  onVolumeChange={setWaterVolume} onUpdatePlant={setPlantConfig} onRefresh={refreshData} aiCheckCountdown={aiCheckCountdown}
               />
            </div>
-           <div className="lg:col-span-7 flex flex-col gap-6 min-w-0">
+           <div className="lg:col-span-7 flex flex-col gap-6">
               <HistoryChart data={historyData} />
               <WaterUsageChart data={waterUsageData} />
            </div>
         </div>
-
-        <div id="project-info">
-           <div className="flex items-center gap-2 mb-4 px-1 mt-12">
-              <FileText className="w-4 h-4 text-slate-400" />
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">Project Documentation</h3>
-           </div>
-           <ProjectInfo theme={theme} />
-        </div>
+        <ProjectInfo theme={theme} />
       </main>
+      
+      {/* Bottom Nav Simulation for Mobile */}
+      <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white/90 backdrop-blur-md border-t border-slate-200 flex items-center justify-around px-6 sm:hidden z-40 pb-safe">
+          <button className={`flex flex-col items-center gap-1 ${theme.textClass}`}>
+              <LayoutDashboard size={20} />
+              <span className="text-[10px] font-bold">หน้าแรก</span>
+          </button>
+          <button className="flex flex-col items-center gap-1 text-slate-400">
+              <Bell size={20} />
+              <span className="text-[10px] font-bold">แจ้งเตือน</span>
+          </button>
+          <button className="flex flex-col items-center gap-1 text-slate-400" onClick={() => document.getElementById('project-info')?.scrollIntoView({behavior: 'smooth'})}>
+              <FileText size={20} />
+              <span className="text-[10px] font-bold">ข้อมูล</span>
+          </button>
+      </nav>
     </div>
   );
 }
