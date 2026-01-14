@@ -24,19 +24,45 @@
       }
     </style>
   <script type="importmap">
-{
-  "imports": {
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "recharts": "https://esm.sh/recharts@^3.6.0"
+  {
+    "imports": {
+      "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+      "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+      "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
+      "react/": "https://esm.sh/react@^19.2.3/",
+      "react": "https://esm.sh/react@^19.2.3",
+      "recharts": "https://esm.sh/recharts@^3.6.0"
+    }
   }
-}
-</script>
-</head>
+  </script>
+  </head>
   <body>
     <div id="root"></div>
+
+    <!-- Module that mounts the app. Update the import path './src/App.jsx' if your entry is different -->
+    <script type="module">
+      import React from "react";
+      import { createRoot } from "react-dom/client";
+
+      async function mount() {
+        try {
+          // ปรับเป็น ./src/main.jsx หรือ ./src/index.jsx ตามที่โปรเจกต์จริงใช้
+          const { default: App } = await import('./src/App.jsx');
+          createRoot(document.getElementById('root')).render(
+            React.createElement(App)
+          );
+        } catch (err) {
+          console.error('Failed to load app entry ./src/App.jsx', err);
+          // แสดง fallback ข้อความบนหน้า เพื่อรู้ว่าโหลดไม่สำเร็จ
+          createRoot(document.getElementById('root')).render(
+            React.createElement('div', { className: 'p-6 text-center text-red-700' },
+              'App failed to load — check console for details'
+            )
+          );
+        }
+      }
+
+      mount();
+    </script>
   </body>
 </html>
