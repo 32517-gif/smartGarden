@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Droplets, Thermometer, Sun, CloudRain, Sprout, Palette, LayoutDashboard, RefreshCw, FileText, Download, Bell } from 'lucide-react';
-import SensorCard from './components/SensorCard';
-import ControlPanel from './components/ControlPanel';
-import WeatherWidget from './components/WeatherWidget';
-import HistoryChart from './components/HistoryChart';
-import WaterUsageChart from './components/WaterUsageChart';
-import PlantStatus from './components/PlantStatus';
-import AIAdvisor from './components/AIAdvisor';
-import ProjectInfo from './components/ProjectInfo';
-import { SensorData, SystemMode, PumpStatus, WeatherForecast, HistoryPoint, WaterLog, PlantConfig, AIActivityLog, ThemeConfig, ThemeColor } from './types';
-import { fetchLatestSensorData, fetchHistoryData, fetchWaterLogs, logWatering } from './services/sheetService';
-import { getGardenAdvice } from './services/geminiService';
-import { getRealWeather, THAI_PROVINCES } from './services/weatherService';
+import SensorCard from './components/SensorCard.tsx';
+import ControlPanel from './components/ControlPanel.tsx';
+import WeatherWidget from './components/WeatherWidget.tsx';
+import HistoryChart from './components/HistoryChart.tsx';
+import WaterUsageChart from './components/WaterUsageChart.tsx';
+import PlantStatus from './components/PlantStatus.tsx';
+import AIAdvisor from './components/AIAdvisor.tsx';
+import ProjectInfo from './components/ProjectInfo.tsx';
+import { SensorData, SystemMode, PumpStatus, WeatherForecast, HistoryPoint, WaterLog, PlantConfig, AIActivityLog, ThemeConfig, ThemeColor } from './types.ts';
+import { fetchLatestSensorData, fetchHistoryData, fetchWaterLogs, logWatering } from './services/sheetService.ts';
+import { getGardenAdvice } from './services/geminiService.ts';
+import { getRealWeather, THAI_PROVINCES } from './services/weatherService.ts';
 
 const APP_CONFIG = {
   appName: "Smart Garden",
@@ -76,7 +76,6 @@ function App() {
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const theme = THEMES[currentThemeId];
 
-  // PWA State
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
@@ -112,7 +111,6 @@ function App() {
   const isProcessingAI = useRef(false);
   const aiCheckCallback = useRef<(() => void) | undefined>(undefined);
 
-  // PWA Installation Effect
   useEffect(() => {
     const handler = (e: any) => {
       e.preventDefault();
@@ -127,9 +125,7 @@ function App() {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setIsInstallable(false);
-    }
+    if (outcome === 'accepted') setIsInstallable(false);
     setDeferredPrompt(null);
   };
 
@@ -137,11 +133,9 @@ function App() {
     setIsSyncing(true);
     try {
       const data = await getRealWeather(lat, lng);
-      if (data) {
-        setWeather({ ...data, location: locationName });
-      }
+      if (data) setWeather({ ...data, location: locationName });
     } catch (e) {
-      console.error("Weather Update Error", e);
+      console.error("Weather Error", e);
     } finally {
       setIsSyncing(false);
     }
@@ -171,7 +165,7 @@ function App() {
 
   useEffect(() => {
     refreshData();
-    const interval = setInterval(refreshData, 15000); 
+    const interval = setInterval(refreshData, 30000); 
     return () => clearInterval(interval);
   }, []);
 
@@ -195,7 +189,6 @@ function App() {
 
   const runAICheck = useCallback(async () => {
       if (mode !== SystemMode.AUTO || pumpStatus.isOn || isProcessingAI.current || sensors.soilMoisture === 0) return;
-      
       isProcessingAI.current = true;
       try {
         const advice = await getGardenAdvice(sensors, weather, plantConfig);
@@ -205,12 +198,11 @@ function App() {
           amount: advice.recommendedAmount,
           reason: advice.reason
         });
-
         if (advice.action === 'WATER' && advice.recommendedAmount > 0) {
           triggerPump(advice.recommendedAmount);
         }
       } catch (error) {
-        console.error("AI reasoning error:", error);
+        console.error("AI error:", error);
       } finally {
         isProcessingAI.current = false;
       }
@@ -223,8 +215,7 @@ function App() {
   useEffect(() => {
     if (mode === SystemMode.AUTO) {
       const initialDelay = 5000;
-      let intervalId: number;
-
+      let intervalId: any;
       const timer = setTimeout(() => {
         aiCheckCallback.current?.();
         setAiCheckCountdown(AI_CHECK_INTERVAL_MS);
@@ -233,9 +224,7 @@ function App() {
           setAiCheckCountdown(AI_CHECK_INTERVAL_MS);
         }, AI_CHECK_INTERVAL_MS);
       }, initialDelay);
-
       setAiCheckCountdown(initialDelay);
-
       return () => {
         clearTimeout(timer);
         if (intervalId) clearInterval(intervalId);
@@ -293,14 +282,14 @@ function App() {
                 <Palette className="w-5 h-5" />
               </button>
               {showThemeMenu && (
-                <div className="absolute right-4 top-14 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 py-1 animate-in fade-in slide-in-from-top-2">
+                <div className="absolute right-4 top-14 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 py-1">
                   {Object.values(THEMES).map((t) => (
                     <button
                       key={t.id}
                       onClick={() => { setCurrentThemeId(t.id as ThemeColor); setShowThemeMenu(false); }}
-                      className={`w-full text-left px-4 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 transition-colors ${currentThemeId === t.id ? `font-bold text-${t.primary}-600 bg-${t.primary}-50` : 'text-slate-600'}`}
+                      className={`w-full text-left px-4 py-3 text-sm flex items-center gap-3 hover:bg-slate-50 ${currentThemeId === t.id ? `font-bold text-${t.primary}-600 bg-${t.primary}-50` : 'text-slate-600'}`}
                     >
-                      <div className={`w-3 h-3 rounded-full bg-${t.primary}-500 shadow-sm`}></div>
+                      <div className={`w-3 h-3 rounded-full bg-${t.primary}-500`}></div>
                       {t.name}
                     </button>
                   ))}
@@ -343,22 +332,6 @@ function App() {
         </div>
         <ProjectInfo theme={theme} />
       </main>
-      
-      {/* Bottom Nav Simulation for Mobile */}
-      <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white/90 backdrop-blur-md border-t border-slate-200 flex items-center justify-around px-6 sm:hidden z-40 pb-safe">
-          <button className={`flex flex-col items-center gap-1 ${theme.textClass}`}>
-              <LayoutDashboard size={20} />
-              <span className="text-[10px] font-bold">หน้าแรก</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 text-slate-400">
-              <Bell size={20} />
-              <span className="text-[10px] font-bold">แจ้งเตือน</span>
-          </button>
-          <button className="flex flex-col items-center gap-1 text-slate-400" onClick={() => document.getElementById('project-info')?.scrollIntoView({behavior: 'smooth'})}>
-              <FileText size={20} />
-              <span className="text-[10px] font-bold">ข้อมูล</span>
-          </button>
-      </nav>
     </div>
   );
 }
