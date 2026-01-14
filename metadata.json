@@ -1,0 +1,5 @@
+{
+  "name": "Smart Garden v2",
+  "description": "An intelligent irrigation system powered by Gemini, featuring real-time monitoring, weather analysis, and automated care for your plants.",
+  "requestFramePermissions": []
+}
